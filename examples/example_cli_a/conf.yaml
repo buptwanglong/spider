@@ -1,0 +1,17 @@
+repo:
+  type: git
+  info:
+    url: git@xx.com
+    branch: master
+    commit: latest
+    access_token: xxxx
+task_conf:
+  work_dir: ./
+  env:
+    python_version: 3.7
+    requirements_location: requirements.txt
+
+web:
+  host: xxx.xxx.com
+  port: xxx
+
