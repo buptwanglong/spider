@@ -1,0 +1,15 @@
+master:
+  host: 127.0.0.1
+  port: 5555
+  backend: sqlite:////Users/wanglong/projects/spider/examples/example_server_a/spider.db
+  work_dir: ./
+
+
+worker:
+  work_dir: ./
+  master_host: 127.0.0.1
+  master_port: 5555
+
+web:
+  host: 127.0.0.1
+  port: 8080
