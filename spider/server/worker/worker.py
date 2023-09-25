@@ -1,53 +1,54 @@
 import datetime
-import os
 import signal
-import yaml
 from spider.util.memcache import cached_property
 from spider.util.zmqrpc import Client
 from enum import Enum
-from spider.protocol import Message, MessageTypeEnum, Task, HeartInfo, TaskLog, TaskStatus, Worker
+from spider.protocol import Message, MessageTypeEnum, Task, HeartInfo, Worker
 import psutil
 import gevent
 import subprocess
 from spider.server.worker.processor import WorkerProcessor
 from typing import List
-from spider.server.config import SERVER_CONF, ServerConf
+from spider.server import config
+from spider.util.common import local_cli_id
+from spider.util.log import logger
 
 
 class WorkState(str, Enum):
     READY = 'Ready'
     RUNNING = 'Running'
-    DEAD = 'dead'
+    DEAD = 'Dead'
 
 
 class WorkerGroup(object):
-    def __init__(self):
-        self.id = f"{SERVER_CONF.master2host}::{SERVER_CONF.master2port}::{os.getpid()}"
+    def __init__(self, conf_path):
+        self.conf_path = conf_path
+        self.id = local_cli_id()
         self._state = WorkState.READY
         self._workers: List[gevent.Greenlet] = []
         signal.signal(signal.SIGTERM, self.warm_terminate)
 
     @cached_property
+    def conf(self) -> config.ServerConf:
+        conf = config.load_conf(self.conf_path)
+        return conf
+
+    @cached_property
     def client(self) -> Client:
+        print('client', self.master_host, self.master_port, self.id)
         return Client(host=self.master_host, port=self.master_port, identity=self.id)
 
     @cached_property
     def master_host(self):
-
-        _host = self.conf.master2host
-        return _host
+        return self.conf.master2host
 
     @cached_property
-    def master_port(self):
-        _port = self.conf.get("worker", {}).get('master_port')
-        if not _port:
-            raise Exception("worker's port host should not be empty")
+    def master_port(self) -> str:
+        return self.conf.master2port
 
     @cached_property
     def work_dir(self):
-        _work_dir = self.conf.get("worker", {}).get("work_dir")
-        if not _work_dir:
-            raise Exception("worker' worker dir should not be empty")
+        return self.conf.woker2work_dir
 
     @property
     def state(self):
@@ -79,46 +80,42 @@ class WorkerGroup(object):
         vm = psutil.virtual_memory()
         return vm.percent
 
-    def heart_beat(self):
+    def heart_beat(self, interval=1):
         while self.state != WorkState.DEAD:
-            self.client.send(Message(
-                m_type=MessageTypeEnum.HEART_BEAT,
-                data=HeartInfo(
-                    cpu_percent=self.cpu_percent,
-                    mem_percent=self.mem_percent
-                ),
-                client_id=self.id,
-                timestamp=int(datetime.datetime.now().timestamp())
-            ))
+            try:
+                logger.debug("msg send")
+                self.client.send(Message(
+                    m_type=MessageTypeEnum.HEART_BEAT,
+                    data=HeartInfo(
+                        cpu_percent=self.cpu_percent,
+                        mem_percent=self.mem_percent
+                    ),
+                    client_id=self.id,
+                    timestamp=int(datetime.datetime.now().timestamp())
+                ))
+                gevent.sleep(interval)
+            except Exception as e:
+                logger.error("heart beat err %s" % e)
 
-    def worker_server(self):
-        self.env_check()
-
-        def task_state_listener(task_log: TaskLog):
-            self.client.send(Message(
-                m_type=MessageTypeEnum.TASK_LOG,
-                data=task_log,
-                client_id=self.id,
-                timestamp=int(datetime.datetime.now().timestamp())
-            ))
-
+    def msg_handler(self):
         while self.state != WorkState.DEAD:
             msg: Message = self.client.recv()
             if msg.m_type == MessageTypeEnum.TASK:
-                task = Task(**msg.data)
-                task_log = TaskLog(name=task.name, task_set=task.task_set, state=TaskStatus.READY, reason='',
-                                   logid='',
-                                   state_listener=task_state_listener)
-                task_log.state = TaskStatus.READY  # trigger hooks
-                g: gevent.Greenlet = gevent.spawn(
-                    WorkerProcessor(task=task, worker_path=self.work_dir, task_log=task_log).core)
+                self._workers.append(gevent.spawn(WorkerProcessor(task=Task(**msg.data), wg=self).core))
 
-                self._workers.append(g)
+    def worker_server(self):
+        self.env_check()
+        # 心跳机制
+        self._workers.append(gevent.spawn(self.heart_beat))
+        # 消息处理
+        self._workers.append(gevent.spawn(self.msg_handler))
+        gevent.joinall(self.workers)
 
     def env_check(self):
         try:
-            subprocess.check_call("docker -v")
+            subprocess.check_call(["docker", "-v"])
         except Exception as ex:
+            print(ex)
             raise Exception("docker should be installed in the env")
 
     def warm_terminate(self):

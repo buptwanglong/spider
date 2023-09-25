@@ -1,30 +1,24 @@
-from gevent import monkey
-
-monkey.patch_all()  # noqa
 from gevent import pywsgi
-import logging
-import os
 from flask import Flask
+from spider.server.web.api import tasks as t
 from spider.server.config import load_conf
-from spider.backend import load_backend
-from spider.server.web.api import tasks_register
 
 app = Flask(__name__)
-loger = logging.Logger(__file__)
 
 
-@app.route('/tasks/register')
+@app.route('/tasks/register', methods=['POST'])
 def tasks_register():
-    return tasks_register.tasks_register()
+    return t.tasks_register()
 
 
-def web_run(conf):
-    conf = load_conf(conf_path=os.path.abspath(conf))
-    load_backend(conf.master2backend)
-
-    server = pywsgi.WSGIServer((conf.web2host, conf.web2port), app)
+def web_run(conf: str):
+    _conf = load_conf(conf)
+    app.conf = conf
+    server = pywsgi.WSGIServer((_conf.web2host, _conf.web2port), app)
     server.serve_forever()
 
 
 if __name__ == '__main__':
+    conf_path = "/Users/wanglong/projects/spider/examples/example_server_a/conf.yaml"
+    web_run(conf_path)
     pass

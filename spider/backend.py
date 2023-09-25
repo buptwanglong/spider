@@ -4,11 +4,13 @@ from spider.protocol import Message, MessageTypeEnum
 from abc import ABCMeta, abstractmethod
 from spider.server.models.sql_alchemy import HeartInfoMysqlModel, TaskMysqlModel, WorkerMysqlModel, \
     Base
+from sqlalchemy.sql import or_
 
 from typing import List, Optional
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm.query import Query
 
 import contextlib
 
@@ -55,7 +57,7 @@ class BaseBackend(metaclass=ABCMeta):
 class SqlAlchemyBackend(BaseBackend):
     def __init__(self, bk_url="sqlite:///spider.db"):
         self.bk_url = bk_url or "sqlite:///spider.db"
-        self.engin = create_engine(url=bk_url)
+        self.engin = create_engine(url=bk_url, pool_size=10, max_overflow=20)
         self.session_maker = sessionmaker(bind=self.engin, expire_on_commit=False)
 
     @contextlib.contextmanager
@@ -85,6 +87,8 @@ class SqlAlchemyBackend(BaseBackend):
         with self.with_session() as s:
             s.add(TaskMysqlModel.from_msg(msg))
 
+
+
     def task_log_add(self, msg: Message):
         if msg.m_type != MessageTypeEnum.TASK_LOG:
             raise Exception("error msg type in bk save")
@@ -105,9 +109,12 @@ class SqlAlchemyBackend(BaseBackend):
 
     def get_ready_tasks(self):
         with self.with_session() as s:
-            qs: List[TaskMysqlModel] = s.query(TaskMysqlModel).filter(
-                TaskMysqlModel.next_run_at < datetime.datetime.now())
-            return qs
+            qs: Query = s.query(TaskMysqlModel).filter(
+                or_(TaskMysqlModel.next_run_at == None, TaskMysqlModel.next_run_at < datetime.datetime.now()))
+            print(qs)
+            data = qs.all()
+            print(len(data))
+            return data
 
     def worker_state_get(self, state):
         with self.with_session() as s:
@@ -118,15 +125,14 @@ class SqlAlchemyBackend(BaseBackend):
         Base.metadata.create_all(self.engin)  # 创建表结构
 
 
-BACKEND: Optional[BaseBackend] = None
-
-
-def load_backend(bk_url):
-    global BACKEND
-    BACKEND = SqlAlchemyBackend(bk_url=bk_url)
-    return BACKEND
+def load_backend(bk_url='sqlite:////Users/wanglong/projects/spider/examples/example_server_a/spider.db'):
+    bk = SqlAlchemyBackend(bk_url=bk_url)
+    return bk
 
 
 if __name__ == '__main__':
-    sb = SqlAlchemyBackend()
-    sb.meta_init()
+    bk = load_backend()
+    for item in bk.get_ready_tasks():
+        print(item)
+
+    # sb.meta_init()

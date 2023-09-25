@@ -4,12 +4,12 @@ import signal
 import os
 import click
 import yaml
-from bin.cli import cli
 
-from spider.backend import SqlAlchemyBackend
+from spider.backend import SqlAlchemyBackend, load_backend
+from spider.server.config import load_conf
 
 
-@cli.group()
+@click.group()
 def master():
     pass
 
@@ -43,21 +43,6 @@ def bk_init(conf: str):
     bk.meta_init()
 
 
-@cli.group()
-@click.option("--conf")
-def web(conf: str):
-    if os.path.isabs(conf):
-        conf: dict = yaml.safe_load(open(conf, 'r'))
-    else:
-        conf: dict = yaml.safe_load(open(os.path.abspath(os.path.join(os.getcwd(), conf))))
-
-    web_host = conf.get("web", {}).get("host")
-    web_port = conf.get("web", {}).get("port")
-
-    if not web_host:
-        raise Exception("web host should not be empty")
-
-    if not web_port:
-        raise Exception("web port should not be empty")
-
-    web_run(web_host, web_port)
+if __name__ == '__main__':
+    master.main()
+    pass

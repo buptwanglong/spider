@@ -8,10 +8,9 @@ from spider.task import Task
 from spider.util.common import local_cli_id, timestamp
 from spider.protocol import Message, MessageTypeEnum, Task as TaskMsgData
 from spider.client.config import load_conf
-from spider.bin.cli import cli
 
 
-@cli.command()
+@click.command()
 @click.argument("prj_path")
 @click.option("--task_names")
 def task_register(prj_path, task_names):
@@ -28,8 +27,8 @@ def task_register(prj_path, task_names):
 
     if not os.path.isdir(prj_path):
         raise Exception("task search path should be dir")
-    if os.path.exists(os.path.join(prj_path, "task_entry.py")):
-        raise Exception("project should has task_entry.py as task entry")
+    if not os.path.exists(os.path.join(prj_path, "task_entry.py")):
+        raise Exception("project should has task_entry.py as task entry", os.path.join(prj_path, "task_entry.py"))
 
     if not os.path.exists(os.path.join(prj_path, "conf.yaml")):
         raise Exception("project should has conf.yaml to configure the task")
@@ -58,7 +57,12 @@ def task_register(prj_path, task_names):
         )
         msgs.append(m)
 
-        resp = requests.post(f"{_conf.web2host}:{_conf.web2port}/tasks/register", json=msgs)
+        resp = requests.post(f"http://{_conf.web2host}:{_conf.web2port}/tasks/register", json=msgs)
         resp.raise_for_status()
         if resp.json()['code'] != 0:
             click.echo("register err resp %s" % resp.json())
+
+
+if __name__ == '__main__':
+    prj_path = './'
+    task_register(prj_path)

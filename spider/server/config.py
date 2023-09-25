@@ -1,6 +1,8 @@
 import os.path
 import yaml
 from typing import Optional
+from spider.util.memcache import call_cache
+from spider.util.ctx import g_ctx
 
 
 class ServerConf(object):
@@ -14,7 +16,7 @@ class ServerConf(object):
         assert self.master2port, "empty port"
         self.master2backend = self.master.get('backend', '')
         assert self.master2backend, "empty bk"
-        self.master2worker_dir = self.master.get('worker_dir', '')
+        self.master2worker_dir = self.master.get('work_dir', '')
         assert self.master2worker_dir, 'empty worker dir'
 
         self.worker = self._conf.get('worker', {})
@@ -33,10 +35,8 @@ class ServerConf(object):
         assert self.web2port, 'empty web port'
 
 
-SERVER_CONF: Optional[ServerConf] = None
-
-
-def load_conf(conf_path):
-    global SERVER_CONF
-    SERVER_CONF = ServerConf(conf_path=conf_path)
-    return SERVER_CONF
+@call_cache
+def load_conf(conf_path) -> ServerConf:
+    sc = ServerConf(conf_path=conf_path)
+    g_ctx.add_or_update('server_conf', sc)
+    return sc

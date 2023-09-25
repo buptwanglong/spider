@@ -1,9 +1,7 @@
 import json
 from enum import Enum
 from typing import TypeVar
-import msgpack
-from dataclasses import dataclass
-from typing import Callable
+from abc import ABCMeta
 
 
 class MessageTypeEnum(str, Enum):
@@ -24,7 +22,7 @@ class TaskStatus(str, Enum):
 JSON = TypeVar("JSON", dict, list)
 
 
-class DictObj(dict):
+class DictObj(dict, metaclass=ABCMeta):
     def __init__(self, *args, **kwargs):
         super(DictObj, self).__init__(*args, **kwargs)
 
@@ -43,7 +41,7 @@ class Message(DictObj):
         self.m_type = m_type
         self.data = data
         self.timestamp = timestamp
-        self.worker_id = client_id
+        self.client_id = client_id
         super(Message, self).__init__()
 
     def serialize(self):
@@ -51,7 +49,9 @@ class Message(DictObj):
 
     @classmethod
     def unserialize(cls, msg_data):
-        return json.loads(msg_data)
+        data = cls(**json.loads(msg_data))
+        data.data = DictObj(data.data)
+        return data
 
 
 class Task(DictObj):
@@ -75,25 +75,21 @@ class HeartInfo(DictObj):
         super(HeartInfo, self).__init__()
 
 
+from typing import Callable
+
+
 class TaskLog(DictObj):
-    def __init__(self, name, task_set, state, reason, logid, state_listener: Callable):
+    def __init__(self, name,
+                 task_set,
+                 state=TaskStatus.READY,
+                 reason='',
+                 logid=''):
         self.name = name
         self.task_set = task_set
-        self._state = state
+        self.state = state
         self.reason = reason
         self.logid = logid
-        self.state_listener = state_listener
         super(TaskLog, self).__init__()
-
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, state):
-        if state != self._state:
-            self._state = state
-            self.state_listener(self)
 
 
 class Worker(DictObj):
@@ -101,3 +97,8 @@ class Worker(DictObj):
         self.id = id
         self.state = state
         super(Worker, self).__init__()
+
+
+if __name__ == '__main__':
+    def h():
+        print('a')

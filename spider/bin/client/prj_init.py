@@ -1,6 +1,5 @@
 import os
 import click
-from bin.cli import cli
 
 conf_yaml = """
 repo:
@@ -42,7 +41,7 @@ if __name__ == '__main__':
 """
 
 
-@cli.command()
+@click.command()
 @click.argument("location")
 def project_init(location):
     if not location:

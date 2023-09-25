@@ -1,5 +1,6 @@
 import datetime
 
+import gevent
 from croniter import croniter
 
 
@@ -18,3 +19,11 @@ class Cron(object):
     @property
     def last_run(self) -> int:
         return int(croniter(self._cron, datetime.datetime.now()).get_prev(datetime.datetime).timestamp())
+
+
+if __name__ == '__main__':
+    cron = Cron("*/5 * * * *")
+
+    while True:
+        print(cron.next_run)
+        gevent.sleep(1)

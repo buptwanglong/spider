@@ -1,12 +1,8 @@
-import os.path
-
-from spider.bin.cli import cli
 import click
-from spider.server.config import load_conf
 from spider.server.web.__main__ import web_run
 
 
-@cli.group()
+@click.group()
 def web():
     pass
 

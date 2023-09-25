@@ -1,4 +1,3 @@
-import gevent
 from gevent.queue import PriorityQueue
 from gevent.lock import RLock
 
@@ -10,9 +9,9 @@ class ReadyTaskPQ(object):
         self.lock = RLock()
         self.snapshorts = []
 
-    def pop(self):
+    def pop(self, *args, **kwargs):
         with self.lock:
-            score, item = self.q.get()
+            score, item = self.q.get(*args, **kwargs)
             return score, item
 
     def put(self, score, item):
@@ -27,6 +26,7 @@ class ReadyTaskPQ(object):
         return self.snapshorts
 
     def snapshot_down(self):
+        print("spawn snapshort")
         while True:
             self.snapshorts.append(self.q.qsize())
             if len(self.snapshorts) > 1000:

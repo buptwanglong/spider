@@ -1,13 +1,8 @@
 import datetime
 from sqlalchemy import String, JSON, TIMESTAMP, Column, Integer
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session
 from sqlalchemy import FLOAT
 from spider.protocol import Message, HeartInfo, MessageTypeEnum, Task, TaskLog, Worker
-
-import contextlib
 
 Base = declarative_base()
 
@@ -21,10 +16,7 @@ class TaskMysqlModel(Base):
     task_set = Column('task_set', JSON)
     cron = Column('cron', String)
     next_run_at = Column('next_run_at', TIMESTAMP)
-
-    @classmethod
-    def from_vo(cls, task: Task):
-        return cls(name=task.name, repo=task.repo, task_conf=task.task_conf, task_set=task.task_set)
+    status = Column('status', String)
 
     @classmethod
     def from_msg(cls, msg: Message):
@@ -66,8 +58,8 @@ class HeartInfoMysqlModel(Base):
         return cls(
             cpu_percent=data.cpu_percent,
             mem_percent=data.mem_percent,
-            node_id=msg.worker_id,
-            timestamp=msg.timestamp
+            node_id=msg.client_id,
+            timestamp=datetime.datetime.fromtimestamp(msg.timestamp)
         )
 
 

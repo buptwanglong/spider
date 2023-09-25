@@ -1,23 +1,21 @@
-import datetime
-import logging
-import os
-import queue
 import signal
-import urllib.parse
 
 import gevent
+from gevent import Greenlet
 
 from spider.util.memcache import cached_property
 from spider.util.zmqrpc import Server
 from spider.protocol import Message, MessageTypeEnum
-from spider.backend import SqlAlchemyBackend, BaseBackend
-from spider.server.master.queue import DEFAULT_READY_TASK_PQ
+from spider import backend
+from spider.server.master.que import DEFAULT_READY_TASK_PQ
 from spider.server.master.loop import ReadyTaskLoop
 from spider.server.master.dispatch import TaskDispatcher
 from enum import Enum
-import yaml
-
-logger = logging.Logger(__file__)
+from spider.server.config import ServerConf
+from spider.server import config
+from spider.util.common import local_cli_id
+from spider.util.log import logger
+from typing import Dict
 
 
 class MasterState(str, Enum):
@@ -29,8 +27,6 @@ class MasterState(str, Enum):
 class Master(object):
     def __init__(self, conf_path=None):
         self._conf_path = conf_path
-
-        self.ready_queue = queue.Queue()
         # task queue
         self.q = DEFAULT_READY_TASK_PQ
         # loop and put q into q
@@ -41,44 +37,25 @@ class Master(object):
         self.rpcserver = Server(host=self.host, port=self.port)
         self.state = MasterState.READY
 
-        signal.signal(signal.SIGTERM, self.terminate)
+        signal.signal(signal.SIGINT, self.terminate)
 
-        self.g_map = dict()
+        self.g_map: Dict[str, Greenlet] = dict()
 
     @cached_property
-    def conf(self) -> dict:
-        if os.path.abspath(self._conf_path):
-            _conf = yaml.safe_load(open(self._conf_path))
-        else:
-            _conf = yaml.safe_load(open(os.path.join(os.getcwd(), self._conf_path)))
-        return _conf
+    def conf(self) -> ServerConf:
+        return config.load_conf(conf_path=self._conf_path)
 
     @property
     def host(self):
-        _host = self.conf.get("master", {}).get("host")
-        if not _host:
-            raise Exception("Conf Error: master host should not be empty")
-
-        return _host
+        return self.conf.master2host
 
     @property
     def port(self):
-        _port = self.conf.get("master", {}).get("port")
-        if not _port:
-            raise Exception("Conf Error: master port should not be empty")
-        return int(_port)
+        return self.conf.master2port
 
     @cached_property
-    def backend(self) -> BaseBackend:
-        _backend = self.conf.get("master", {}).get("backend")
-        if _backend:
-            _bk_url = urllib.parse.urlparse(_backend)
-            if _bk_url.scheme in ['sqlite', 'mysql']:
-                return SqlAlchemyBackend(_backend)
-            else:
-                raise Exception("Now only support sqlite and mysql")
-        else:
-            return SqlAlchemyBackend()
+    def backend(self) -> backend.BaseBackend:
+        return backend.load_backend(self.conf.master2backend)
 
     @property
     def state(self):
@@ -90,7 +67,7 @@ class Master(object):
 
     @cached_property
     def id(self):
-        return f"{self.host}::{self.port}::{os.getpid()}"
+        return local_cli_id()
 
     def msg_handler(self, msg: Message):
         if msg.m_type == MessageTypeEnum.HEART_BEAT:
@@ -102,11 +79,17 @@ class Master(object):
 
     def rpc_serve(self):
         while self.state != MasterState.DEAD:
-            node_id, _msg = self.rpcserver.recv_from_client()
-            msg: Message = _msg
-            self.msg_handler(msg)
+            try:
+                node_id, _msg = self.rpcserver.recv_from_client()
+                msg: Message = _msg
+                logger.debug("accept msg %s" % msg)
+                self.msg_handler(msg)
+            except Exception as e:
+                logger.info("no data,wait", e)
+                gevent.sleep(1)
 
     def dispatch_and_send(self):
+        print("spawn dispatch")
         for msg in self.dispatcher.dispatch():
             self.rpcserver.send2client(msg)
 
@@ -114,9 +97,10 @@ class Master(object):
         self.g_map['loop_g'] = gevent.spawn(self.loop.loop)
         self.g_map['dispatch_g'] = gevent.spawn(self.dispatch_and_send)
         self.g_map['q_snapshot_down_g'] = gevent.spawn(self.q.snapshot_down)
-        self.rpc_serve()
+        self.g_map['rpc_server_g'] = gevent.spawn(self.rpc_serve)
+        gevent.joinall(self.g_map.values())
 
-    def terminate(self):
+    def terminate(self, signum, frame, *args, **kwargs):
         logger.info(f"terminate the task gen loop")
         self.g_map['loop_g'].kill()
         logger.info(f"terminate the snapshot down g")
@@ -127,3 +111,9 @@ class Master(object):
         logger.info(f"tasks empty in q {self.q.name}")
         logger.info(f"terminate the dispatch_g")
         self.g_map['dispatch_g'].kill()
+        logger.info(f"set state to dead")
+        self.state = MasterState.DEAD
+
+
+if __name__ == '__main__':
+    pass

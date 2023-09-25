@@ -1,6 +1,8 @@
 import yaml
 import os
 from typing import Optional
+from spider.util.ctx import g_ctx
+from spider.util.memcache import call_cache
 
 
 class ClientConfig(object):
@@ -12,12 +14,12 @@ class ClientConfig(object):
         assert self.repo2type, "repo type should not be empty"
         self.repo2info = self.repo.get('info', {})
         assert self.repo2info, "repo info should not be empty"
-        self.task_conf = self.repo.get('task_conf', {})
+        self.task_conf = self._conf.get('task_conf', {})
         assert self.task_conf, "task conf should not be empty"
         self.task_conf2work_dir = self.task_conf.get('work_dir')
         assert self.task_conf2work_dir, "task conf -> work dir should not be empty"
 
-        self.task_conf2env = self.repo.get('env', {})
+        self.task_conf2env = self.task_conf.get('env', {})
         assert self.task_conf2env, "task conf -> env should not be empty"
 
         self.web = self._conf.get('web', {})
@@ -28,10 +30,8 @@ class ClientConfig(object):
         assert self.web2port, "web port should not be empty"
 
 
-CLIENT_CONFIG: Optional[ClientConfig] = None
-
-
+@call_cache
 def load_conf(conf_path) -> ClientConfig:
-    global CLIENT_CONFIG
-    CLIENT_CONFIG = CLIENT_CONFIG(conf_path=conf_path)
-    return CLIENT_CONFIG
+    cc = ClientConfig(conf_path=conf_path)
+    g_ctx.add_or_update('client_conf', cc)
+    return cc

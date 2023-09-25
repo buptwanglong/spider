@@ -1,5 +1,8 @@
 from threading import RLock
 from functools import wraps
+import datetime
+
+import gevent.lock
 
 _NOT_FOUND = object()
 
@@ -58,12 +61,17 @@ class CallCache(object):
 
     def __call__(self, func):
         @wraps(func)
-        def callee():  # notice: do not support functions with arguments by design, for prevent cache flood DoS.
-            key = func.__name__
+        def callee(*args, **kwargs):
+            if len(str(func.__qualname__).split('.')) > 1:
+                # remove the instance params in the args
+                key = f"""{func.__module__}::{func.__qualname__}::{args[1:]}::{[(key, kwargs[key])
+                                                                                for key in sorted(kwargs)]}"""
+            else:
+                key = f"{func.__module__}::{func.__qualname__}::{args}::{[(key, kwargs[key]) for key in sorted(kwargs)]}"
             if key in self.cache:
                 result = self.cache.get(key)
             else:
-                result = func()
+                result = func(*args, **kwargs)
                 self.cache[key] = result
             return result
 

@@ -12,6 +12,6 @@ task_conf:
     requirements_location: requirements.txt
 
 web:
-  host: xxx.xxx.com
-  port: xxx
+  host: 127.0.0.1
+  port: 8000
 

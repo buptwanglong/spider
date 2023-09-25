@@ -6,6 +6,13 @@ from spider.util.memcache import cached_property
 from urllib.parse import urlparse
 from spider.util.github import GitHubCli
 import subprocess
+from spider.util.ctx import g_ctx
+from spider.server.config import ServerConf
+from spider.util.listener import inject
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from spider.server.worker.worker import WorkerGroup
 
 
 class RepoValidate(object):
@@ -41,21 +48,45 @@ class TaskConfValidate(object):
 
 
 class WorkerProcessor(object):
-    def __init__(self, task: Task, worker_path, task_log: TaskLog):
+    def __init__(self, task: Task, wg: WorkerGroup):
         self.task = task
         self.repo_validate = RepoValidate(**task.repo.get("info", {}))
         self.task_conf_validate = TaskConfValidate(**task.repo.get("task_conf", {}))
-        self.worker_path = worker_path
-        self.task_log = task_log
+        self.task_log = TaskLog(
+            name=task.name,
+            task_set=task.task_set,
+        )
+        # inject listener
+        inject(self.task_log, 'state', self.task_log_listener)
+        self.wg = wg
+
+    def task_log_listener(self):
+        self.wg.client.send(Message(
+            m_type=MessageTypeEnum.TASK_LOG,
+            data=self.task_log,
+            client_id=self.wg.id,
+            timestamp=int(datetime.datetime.now().timestamp())
+        ))
+
+    @cached_property
+    def conf(self) -> ServerConf:
+        _conf = g_ctx.get('server_conf')
+        if not _conf:
+            raise Exception("conf is empty")
+        return _conf
+
+    @cached_property
+    def work_dir(self):
+        return self.conf.woker2work_dir
 
     @cached_property
     def task_path(self):
-        return os.path.join(self.worker_path, self.repo_validate.repo)
+        return os.path.join(self.work_dir, self.repo_validate.repo)
 
     def load_code(self):
         GitHubCli(access_token=self.repo_validate.access_token,
                   host_name=self.repo_validate.host_name).pull2path(self.repo_validate.repo,
-                                                                    path=self.worker_path)
+                                                                    path=self.work_dir)
 
         return
 
@@ -65,7 +96,7 @@ class WorkerProcessor(object):
          VOLUME {self.task_path} /home/{self.repo_validate.repo}
          WORKDIR /home/{self.repo_validate.repo}
          RUN pip install virtualenv \
-         && virtualenv create venv ./ \
+         && virtualenv venv ./ \
          && source ./venv/bin/activate \
          && pip install -r requirements.txt 
          ENTRYPOINT ["spider worker task_run"]
